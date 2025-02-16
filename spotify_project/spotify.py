@@ -18,6 +18,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.oauth2 import SpotifyClientCredentials
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MultiLabelBinarizer
@@ -133,6 +134,7 @@ def get_recent_tracks(numbers):
         album_artist_id_str = ", ".join([artist['id'] for artist in track['track']['album']['artists']])
 
         album_track_df['album_artists_id'] = album_artist_id_str
+        album_track_df['album_artists_id'] = album_track_df['album_artists_id'].astype(str)
         album_track_df['album_artists_name'] = album_artist_str
 
         track_df = pd.json_normalize(track['track'])[['duration_ms', 'id', 'name', 'popularity']]
@@ -156,6 +158,7 @@ def get_recent_tracks(numbers):
         track_artist_id_str = ", ".join([artist['id'] for artist in track['track']['artists']])
 
         track_df['track_artists_id'] = track_artist_id_str
+        track_df['track_artists_id'] = track_df['track_artists_id'].astype(str)
         track_df['track_artists_name'] = track_artist_str
 
         ### Get similar artists and musical styles
@@ -186,7 +189,10 @@ def get_recent_tracks(numbers):
 
         played_at_df = pd.json_normalize(track)[['played_at']]
 
-        context_df = pd.json_normalize(track['context'])[['type']]
+        if 'context' in track and track['context'] is not None:
+            context_df = pd.json_normalize(track['context'])[['type']]
+        else:
+            context_df = pd.DataFrame({'context_type': [None]})
         context_df.rename(columns={'type': 'context_type'}, inplace=True)
 
         album_track_df = pd.concat([album_track_df, track_df, track_details_df, played_at_df, context_df], axis=1)
@@ -199,7 +205,7 @@ def get_recent_tracks(numbers):
     return recent_tracks_df
 
 
-def vectorize_recent_tracks(df):
+def vectorize_recent_tracks(df, n_components=1, played_date=False):
     """
     df : dataframe with last tracks (returned by get_recent_track)
     Return a dataframe with vectorized data
@@ -207,35 +213,39 @@ def vectorize_recent_tracks(df):
     # Define the encoder
     encoder = LabelEncoder()
 
-    df_vect = df[['popularity', 'duration', 'track_listeners', 'track_playcount']].copy()
+    df_vect = df[['popularity', 'duration', 'track_listeners', 'track_playcount', 'release_date']].copy()
 
     # Encode all the ids (so we don't need anymore name and titles)
     df_vect['album_id'] = encoder.fit_transform(df['album_id'])
-    df_vect['album_artists_id'] = encoder.fit_transform(df['album_artists_id']) ### Corriger avec MultiLabelBinarizer
     df_vect['track_id'] = encoder.fit_transform(df['track_id'])
-    df_vect['track_artists_id'] = encoder.fit_transform(df['track_artists_id']) ### Corriger avec MultiLabelBinarizer
     df_vect['context_type'] = encoder.fit_transform(df['context_type'])
 
+    df['track_artists_id'] = df['track_artists_id'].fillna('').apply(lambda x: x.split(', '))
+    df['album_artists_id'] = df['album_artists_id'].fillna('').apply(lambda x: x.split(', '))
 
-    # Vectorize release_date : compare lifeitme since reference date
+    mlb = MultiLabelBinarizer()
+    encoded_artists = pd.DataFrame(mlb.fit_transform(df['track_artists_id']))
+    encoded_albums = pd.DataFrame(mlb.fit_transform(df['album_artists_id']))
+
+    # Vectorize release_date : compare lifetime since reference date
     reference_date = datetime.strptime('01-01-2000', '%d-%m-%Y')
-    df_vect['release_date'] = (df['release_date'] - reference_date).dt.days
+    df_vect['release_date'] = (df_vect['release_date'] - reference_date).dt.days
 
+    if played_date:
+        # Vectorize played date : conserve cyclic relation with cos and sin
 
-    # Vectorize played date : conserve cyclic relation with cos and sin
+        df_vect['year'] = df['played_at'].dt.year
+        df_vect['month'] = df['played_at'].dt.month
+        df_vect['day'] = df['played_at'].dt.day
+        df_vect['dayofweek'] = df['played_at'].dt.dayofweek  # 0 = Monday, 6 = Sunday
+        df_vect['hour'] = df['played_at'].dt.hour
 
-    df_vect['year'] = df['played_at'].dt.year
-    df_vect['month'] = df['played_at'].dt.month
-    df_vect['day'] = df['played_at'].dt.day
-    df_vect['dayofweek'] = df['played_at'].dt.dayofweek  # 0 = Monday, 6 = Sunday
-    df_vect['hour'] = df['played_at'].dt.hour
-
-    df_vect['month_sin'] = np.sin(2 * np.pi * df_vect['month'] / 12)
-    df_vect['month_cos'] = np.cos(2 * np.pi * df_vect['month'] / 12)
-    df_vect['dayofweek_sin'] = np.sin(2 * np.pi * df_vect['dayofweek'] / 7)
-    df_vect['dayofweek_cos'] = np.cos(2 * np.pi * df_vect['dayofweek'] / 7)
-    df_vect['day_sin'] = np.sin(2 * np.pi * df_vect['day'] / 31)
-    df_vect['day_cos'] = np.cos(2 * np.pi * df_vect['day'] / 31)
+        df_vect['month_sin'] = np.sin(2 * np.pi * df_vect['month'] / 12)
+        df_vect['month_cos'] = np.cos(2 * np.pi * df_vect['month'] / 12)
+        df_vect['dayofweek_sin'] = np.sin(2 * np.pi * df_vect['dayofweek'] / 7)
+        df_vect['dayofweek_cos'] = np.cos(2 * np.pi * df_vect['dayofweek'] / 7)
+        df_vect['day_sin'] = np.sin(2 * np.pi * df_vect['day'] / 31)
+        df_vect['day_cos'] = np.cos(2 * np.pi * df_vect['day'] / 31)
 
 
     # Vectorize similar_artists and track_tags
@@ -252,12 +262,46 @@ def vectorize_recent_tracks(df):
     track_tags_vect = vectorize_column(df['track_tags'], unique_tags)
 
     ### Transform vector in float number
-    pca = PCA(n_components=1)
+    pca = PCA(n_components=n_components)
 
-    df_vect['similar_artists'] = pd.DataFrame(pca.fit_transform(similar_artists_vect.apply(pd.Series).fillna(0)))
-    df_vect['track_tags'] = pd.DataFrame(pca.fit_transform(track_tags_vect.apply(pd.Series).fillna(0)))
+    similar_artists_pca = pd.DataFrame(pca.fit_transform(similar_artists_vect.apply(pd.Series).fillna(0)), index=df.index)
+    track_tags_pca = pd.DataFrame(pca.fit_transform(track_tags_vect.apply(pd.Series).fillna(0)), index=df.index)
+
+    track_artists_pca = pd.DataFrame(pca.fit_transform(encoded_artists.fillna(0)), index=df.index)
+    album_artists_pca = pd.DataFrame(pca.fit_transform(encoded_albums.fillna(0)), index=df.index)
+
+    if n_components == 1:
+        df_vect['similar_artists'] = similar_artists_pca.iloc[:, 0]
+        df_vect['track_tags'] = track_tags_pca.iloc[:, 0]
+        df_vect['track_artists_id'] = track_artists_pca.iloc[:, 0]
+        df_vect['album_artists_id'] = album_artists_pca.iloc[:, 0]
+    else:
+        similar_artists_pca.columns = [f'similar_artists_{i}' for i in range(1, n_components + 1)]
+        track_tags_pca.columns = [f'track_tags_{i}' for i in range(1, n_components + 1)]
+        track_artists_pca.columns = [f'track_artists_id_{i}' for i in range(1, n_components + 1)]
+        album_artists_pca.columns = [f'album_artists_id_{i}' for i in range(1, n_components + 1)]
+
+        df_vect = pd.concat([df_vect, similar_artists_pca, track_tags_pca, track_artists_pca, album_artists_pca], axis=1)
 
     return df_vect
+
+
+def scale_and_weight(df_vect, weighted_features=None, weights=None, n_components=1):
+
+    scaler = MinMaxScaler()
+    df_vect_scaled = pd.DataFrame(scaler.fit_transform(df_vect), columns=df_vect.columns, index=df_vect.index)
+
+    if weighted_features and weights:
+        for prefix, weight in zip(weighted_features, weights):
+            if prefix in df_vect_scaled.columns:
+                df_vect_scaled[prefix] *= weight
+            else:
+                for i in range(1, n_components + 1):
+                    col_name = f"{prefix}_{i}" if n_components > 1 else prefix
+                    if col_name in df_vect_scaled.columns:
+                        df_vect_scaled[col_name] *= weight
+
+    return df_vect_scaled
 
 
 ### Visualisations
@@ -320,14 +364,15 @@ def clustering(df, epsilon=0.1):
     """
     df : vectorized features of a trakclist
     """
-
+    df = df.copy()
     df.columns = df.columns.astype(str)
+    df.drop(columns=['track_id'], inplace=True, errors='coerce')
 
     ### Pour éviter d'utiliser dropna et garder le même nombre de lignes
     imputer = SimpleImputer(strategy="mean")
     df_imputed = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
 
-    scaler = StandardScaler()
+    scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(df_imputed)
 
     with warnings.catch_warnings():
@@ -351,14 +396,15 @@ def visualize_clustering(df, epsilon=0.1):
     """
     df : vectorized features of a trakclist
     """
-
+    df = df.copy()
     df.columns = df.columns.astype(str)
+    df.drop(columns=['track_id'], inplace=True, errors='coerce')
 
     ### Pour éviter d'utiliser dropna et garder le même nombre de lignes
     imputer = SimpleImputer(strategy="mean")
     df_imputed = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
 
-    scaler = StandardScaler()
+    scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(df_imputed)
 
     with warnings.catch_warnings():
@@ -470,7 +516,7 @@ def get_tracklist(df, limit=3):
     return cluster_dfs
 
 
-def vectorize_tracklist(cluster_dfs):
+def vectorize_tracklist(cluster_dfs, weighted_features=None, weights=None, n_components=1):
     cluster_vect_dfs = {}
 
     for cluster_name, cluster in cluster_dfs.items():
@@ -481,14 +527,12 @@ def vectorize_tracklist(cluster_dfs):
         cluster_vect['album_id'] = encoder.fit_transform(cluster['album_id'])
         cluster_vect['track_id'] = encoder.fit_transform(cluster['track_id'])
 
-        cluster['track_artists_id'] = cluster['track_artists_id'].fillna('').apply(lambda x: x.split(', '))
-        cluster['album_artists_id'] = cluster['album_artists_id'].fillna('').apply(lambda x: x.split(', '))
+        cluster['track_artists_id'] = cluster['track_artists_id'].fillna('').astype(str).apply(lambda x: x.split(', '))
+        cluster['album_artists_id'] = cluster['album_artists_id'].fillna('').astype(str).apply(lambda x: x.split(', '))
 
         mlb = MultiLabelBinarizer()
         encoded_artists = pd.DataFrame(mlb.fit_transform(cluster['track_artists_id']))
         encoded_albums = pd.DataFrame(mlb.fit_transform(cluster['album_artists_id']))
-
-        cluster_vect = pd.concat([cluster_vect, encoded_artists, encoded_albums], axis=1)
 
         reference_date = datetime.strptime('01-01-2000', '%d-%m-%Y')
         cluster_vect['release_date'] = (cluster['release_date'] - reference_date).dt.days
@@ -507,15 +551,40 @@ def vectorize_tracklist(cluster_dfs):
         track_tags_vect = vectorize_column(cluster['track_tags'], unique_tags)
 
         ### On convertit les vecteurs en float
-        pca = PCA(n_components=1)
+        pca = PCA(n_components=n_components)
 
-        cluster_vect['similar_artists'] = pd.DataFrame(pca.fit_transform(similar_artists_vect.apply(pd.Series).fillna(0)))
-        cluster_vect['track_tags'] = pd.DataFrame(pca.fit_transform(track_tags_vect.apply(pd.Series).fillna(0)))
+        similar_artists_pca = pd.DataFrame(pca.fit_transform(similar_artists_vect.apply(pd.Series).fillna(0)), index=cluster_vect.index)
+        track_tags_pca = pd.DataFrame(pca.fit_transform(track_tags_vect.apply(pd.Series).fillna(0)), index=cluster_vect.index)
+        track_artists_pca = pd.DataFrame(pca.fit_transform(encoded_artists.fillna(0)), index=cluster_vect.index)
+        album_artists_pca = pd.DataFrame(pca.fit_transform(encoded_albums.fillna(0)), index=cluster_vect.index)
 
-        cluster_vect['track_artists_id'] = pd.DataFrame(pca.fit_transform(encoded_artists.fillna(0)))
-        cluster_vect['album_artists_id'] = pd.DataFrame(pca.fit_transform(encoded_albums.fillna(0)))
+        if n_components == 1:
+            cluster_vect['similar_artists'] = similar_artists_pca.iloc[:, 0]
+            cluster_vect['track_tags'] = track_tags_pca.iloc[:, 0]
+            cluster_vect['track_artists_id'] = track_artists_pca.iloc[:, 0]
+            cluster_vect['album_artists_id'] = album_artists_pca.iloc[:, 0]
+        else:
+            similar_artists_pca.columns = [f'similar_artists_{i}' for i in range(1, n_components + 1)]
+            track_tags_pca.columns = [f'track_tags_{i}' for i in range(1, n_components + 1)]
+            track_artists_pca.columns = [f'track_artists_id_{i}' for i in range(1, n_components + 1)]
+            album_artists_pca.columns = [f'album_artists_id_{i}' for i in range(1, n_components + 1)]
+            
+            cluster_vect = pd.concat([cluster_vect, similar_artists_pca, track_tags_pca, track_artists_pca, album_artists_pca], axis=1)
 
-        cluster_vect_dfs[cluster_name] = cluster_vect if not cluster_vect.empty else pd.DataFrame()
+        scaler = MinMaxScaler()
+        cluster_vect_scaled = pd.DataFrame(scaler.fit_transform(cluster_vect), columns=cluster_vect.columns, index=cluster_vect.index)
+
+        if weighted_features and weights:
+            for prefix, weight in zip(weighted_features, weights):
+                if prefix in cluster_vect_scaled.columns:
+                    cluster_vect_scaled[prefix] *= weight
+                else:
+                    for i in range(1, n_components + 1):
+                        col_name = f"{prefix}_{i}" if n_components > 1 else prefix
+                        if col_name in cluster_vect_scaled.columns:
+                            cluster_vect_scaled[col_name] *= weight
+
+        cluster_vect_dfs[cluster_name] = cluster_vect_scaled if not cluster_vect_scaled.empty else pd.DataFrame()
 
     return cluster_vect_dfs
 
@@ -524,6 +593,8 @@ def compute_cosine_matrices(cluster_vect_dfs):
     cosine_matrices = {}
 
     for num_cluster, cluster in cluster_vect_dfs.items():
+        cluster = cluster.copy()
+        cluster.drop(columns=['track_id'], inplace=True, errors='ignore')
         cosine_matrices[num_cluster] = cosine_similarity(cluster.fillna(0))
 
     return cosine_matrices
@@ -552,9 +623,9 @@ def search_similar_tracks(df, cluster_dfs, cosine_matrices, track_pos, nb_tracks
     return f"Tracks similaires à '{track['track_name']}' : {top_similar_tracks_str}"
 
 
-def search_similar_tracks_all(df, track_pos, nb_tracks=5, limit=3):
+def search_similar_tracks_all(df, track_pos, nb_tracks=5, n_components=1, limit=3):
     ### Clustering
-    df_vect = vectorize_recent_tracks(df)
+    df_vect = vectorize_recent_tracks(df, n_components)
     df['cluster'] = clustering(df_vect)
 
     cluster_dfs = get_tracklist(df, limit=limit)
