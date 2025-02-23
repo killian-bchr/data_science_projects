@@ -27,7 +27,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 
-from config import (
+from config.config import (
     api_key_lastfm,
     client_secret_lastfm,
     client_id,
@@ -726,7 +726,7 @@ def search_similar_tracks_by_name(df, cluster_dfs, cosine_matrices, track_name, 
     if not filtered_tracks.empty:
         track = filtered_tracks.iloc[0]
     else:
-        return f"Aucun morceau trouvé avec le nom '{track_name}'"
+        return ""
 
     num_cluster = track['cluster']
 

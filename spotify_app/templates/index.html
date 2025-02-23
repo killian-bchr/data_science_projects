@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playlist Spotify</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Playlist Spotify</h1>
+    <div class="playlist">
+        {% for track in tracks %}
+            <div class="track">
+                <a href="{{ track.spotify_url }}" target="_blank">
+                    <img src="{{ track.image_url }}" alt="Album cover">
+                </a>
+                <h3>{{ track.track_name }}</h3>
+                <p>{{ track.track_artists_name }}</p>
+                <a href="{{ url_for('similar_tracks', track_id=track.track_id) }}" class="btn">Voir les tracks similaires</a>
+                <br>
+                <a href="{{ track.spotify_url }}" target="_blank" class="btn">Écouter sur Spotify</a>
+            </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
