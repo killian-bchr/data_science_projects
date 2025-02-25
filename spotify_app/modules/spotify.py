@@ -130,7 +130,7 @@ def get_playlist_tracks(playlist_id):
                 artist=track['artists'][0]['name'], 
                 api_key=api_key_lastfm, 
                 method='track.getInfo'
-            )
+            ) or {}
 
             track_details = track_details.get('track', {})
 
@@ -143,7 +143,7 @@ def get_playlist_tracks(playlist_id):
                     artist=current_artist, 
                     api_key=api_key_lastfm, 
                     method='artist.getInfo'
-                )
+                ) or {}
 
                 if "error" not in artist_details:
                     similar_artists = artist_details.get('artist', {}).get('similar', {}).get('artist', [])
@@ -181,8 +181,8 @@ def get_playlist_tracks(playlist_id):
 
         offset += 100
 
-        playlist = pd.DataFrame(tracks)
-        playlist['release_date'] = pd.to_datetime(playlist['release_date'], errors='coerce')
+    playlist = pd.DataFrame(tracks)
+    playlist['release_date'] = pd.to_datetime(playlist['release_date'], errors='coerce')
 
     return playlist
 
@@ -231,12 +231,6 @@ def get_recent_tracks(numbers):
         track_df['track_artists_name'] = track_artist_str
 
         played_at_df = pd.json_normalize(track)[['played_at']]
-
-        # if 'context' in track and track['context'] is not None:
-        #     context_df = pd.json_normalize(track['context'])[['type']]
-        # else:
-        #     context_df = pd.DataFrame({'context_type': [None]})
-        # context_df.rename(columns={'type': 'context_type'}, inplace=True)
 
         track_details = get_track_details(
             track=track['track']['name'], 
