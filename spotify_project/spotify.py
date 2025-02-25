@@ -188,93 +188,72 @@ def get_playlist_tracks(playlist_id):
 
 def get_recent_tracks(numbers):
     """
-    numbers : number of last tracks you want to get
-    Return a dataframe with the last tracks listened with further informations for each one
-    """
+    numbers : number of last tracks you want to get (must be <50 because we can't load more than 50)
+    Return a dataframe with the last tracks listened and further informations for each one
+    """    
+    limit = min(50, numbers)
+    response = sp.current_user_recently_played(limit=limit)
+    items = response.get('items', [])
+
     all_tracks = []
-    after = None
 
-    while len(all_tracks) < numbers:
-        limit = min(50, numbers - len(all_tracks))
-        response = sp.current_user_recently_played(limit=limit, after=after)
-        tracks = response.get('items', [])
-
-        if not tracks:
-            break
-
-        all_tracks.extend(tracks)
-        after = tracks[-1]['played_at']
-        time.sleep(0.5)
-
-    recent_tracks_df = pd.DataFrame()
-
-    for track in all_tracks:
-        album_track_df = pd.json_normalize(track['track']['album'])[['id', 'name', 'release_date']]
-        album_track_df.rename(columns={'id':'album_id', 'name':'album_name'}, inplace=True)
-
-        album_artist_str = ", ".join([artist['name'] for artist in track['track']['album']['artists']])
-        album_artist_id_str = ", ".join([artist['id'] for artist in track['track']['album']['artists']])
-
-        album_track_df['album_artists_id'] = album_artist_id_str
-        album_track_df['album_artists_id'] = album_track_df['album_artists_id'].astype(str)
-        album_track_df['album_artists_name'] = album_artist_str
-
-        track_df = pd.json_normalize(track['track'])[['duration_ms', 'id', 'name', 'popularity']]
-        track_df['duration_ms'] = track_df['duration_ms']/1000
-        track_df.rename(columns={'id':'track_id', 'name':'track_name', 'duration_ms':'duration'}, inplace=True)
-
-        track_artist_str = ", ".join([artist['name'] for artist in track['track']['artists']])
-        track_artist_id_str = ", ".join([artist['id'] for artist in track['track']['artists']])
-
-        track_df['track_artists_id'] = track_artist_id_str
-        track_df['track_artists_id'] = track_df['track_artists_id'].astype(str)
-        track_df['track_artists_name'] = track_artist_str
-
-        played_at_df = pd.json_normalize(track)[['played_at']]
+    for item in items:
+        track = item['track']
+        album_images = track['album']['images']
+        album_image_url = album_images[1]['url'] if len(album_images) > 1 else album_images[0]['url']
 
         track_details = get_track_details(
-            track=track['track']['name'], 
-            artist=track['track']['artists'][0]['name'], 
+            track=track['name'], 
+            artist=track['artists'][0]['name'], 
             api_key=api_key_lastfm, 
             method='track.getInfo'
-        )
+        ) or {}
 
-        if "error" in track_details:
-            track_details_df = pd.DataFrame(columns=['track_listeners', 'track_playcount'])
-        else:
-            track_details_df = pd.json_normalize(track_details.get('track', {})).get(['listeners', 'playcount'], pd.DataFrame())
-            track_details_df.rename(columns={'listeners': 'track_listeners', 'playcount': 'track_playcount'}, inplace=True)
+        track_details = track_details.get('track', {})
 
-        ### Get similar artists and musical styles
         similar_artists_list = []
         track_tags_list = []
-        for artist in track['track']['artists']:
+
+        for artist in track['artists']:
             current_artist = artist['name']
+            artist_details = get_artist_details(
+                artist=current_artist, 
+                api_key=api_key_lastfm, 
+                method='artist.getInfo'
+            ) or {}
 
-            artist_details = get_artist_details(artist=current_artist, api_key=api_key_lastfm, method='artist.getInfo')
-
-            if "error" in artist_details:
-                similar_artists_list.append(None)
-            else:
+            if "error" not in artist_details:
                 similar_artists = artist_details.get('artist', {}).get('similar', {}).get('artist', [])
                 similar_artists_list.extend([similar_artist['name'] for similar_artist in similar_artists])
 
-            if "error" in artist_details:
-                track_tags_list.append(None)
-            else:
-                tags = artist_details.get('artist', {}).get('tags', {}).get('tag', [])
-                track_tags_list.extend([tag['name'] for tag in tags])
-            
-        similar_artists_str = ", ".join([artist for artist in set(similar_artists_list) if artist is not None])     # Use of set in order to avoid duplicates
-        track_tags_str = ", ".join([track for track in set(track_tags_list) if track is not None])      # Use of set in order to avoid duplicates
+        tags = artist_details.get('artist', {}).get('tags', {}).get('tag', [])
+        track_tags_list.extend([tag['name'] for tag in tags])
+                
+        similar_artists_str = ", ".join(set(similar_artists_list))
+        track_tags_str = ", ".join(set(track_tags_list))
 
-        track_df['similar_artists'] = similar_artists_str
-        track_df['track_tags'] = track_tags_str
+        all_tracks.append({
+            'album_id': track['album']['id'],
+            'album_name': track['album']['name'],
+            'release_date': track['album']['release_date'],
+            'album_artists_id': ', '.join([artist['id'] for artist in track['album']['artists']]),
+            'album_artists_name': ', '.join([artist['name'] for artist in track['album']['artists']]),
+            'duration': track['duration_ms']/1000,
+            'track_id': track['id'],
+            'track_name': track['name'],
+            'popularity': track['popularity'],
+            'track_artists_id': ', '.join([artist['id'] for artist in track['artists']]),
+            'track_artists_name': ', '.join([artist['name'] for artist in track['artists']]),
+            'track_listeners': track_details.get('listeners', np.nan),
+            'track_playcount': track_details.get('playcount', np.nan),
+            'similar_artists': similar_artists_str,
+            'played_at':item['played_at'],
+            'track_tags': track_tags_str,
+            'image_url': album_image_url,
+            'spotify_url': track['external_urls']['spotify']
+        })
 
-        album_track_df = pd.concat([album_track_df, track_df, track_details_df, played_at_df], axis=1)
-        recent_tracks_df = pd.concat([recent_tracks_df, album_track_df], axis=0)
-        time.sleep(0.1)
-
+    recent_tracks_df = pd.DataFrame(all_tracks)
     recent_tracks_df.reset_index(inplace=True, drop=True)
     recent_tracks_df['release_date'] = pd.to_datetime(recent_tracks_df['release_date'], errors='coerce')
     recent_tracks_df['played_at'] = pd.to_datetime(recent_tracks_df['played_at'], errors='coerce')
@@ -304,6 +283,7 @@ def vectorize_recent_tracks(df, n_components=1, played_date=False):
 
     # Vectorize release_date : compare lifetime since reference date
     reference_date = datetime.strptime('01-01-2000', '%d-%m-%Y')
+    df_vect['release_date'] = pd.to_datetime(df_vect['release_date'], errors='coerce')
     df_vect['release_date'] = (df_vect['release_date'] - reference_date).dt.days
 
     if played_date:
