@@ -36,6 +36,6 @@
 
 ### Future Improvements
 
-##### - Identify patterns in user listening history to improve recommendations.
-##### - Train classification models (SVM, Random Forest, etc.) to predict user preferences.
-##### - Experiment with advanced clustering techniques to improve accuracy.
+##### - Identify patterns in user listening history to improve recommendations
+##### - Train classification models (SVM, Random Forest, etc.) to predict user preferences
+##### - Experiment with advanced clustering techniques to improve accuracy
