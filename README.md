@@ -1,8 +1,7 @@
 ## Music Recommendation System
 
-#### --------------------------
 #### Project Overview
-#### --------------------------
+
 ##### This project aims to build a music recommendation system based on the user's listening history.
 ##### The system analyzes track features and listening patterns to provide personalized recommendations.
 
