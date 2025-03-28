@@ -2,11 +2,13 @@
 
 #### Project Overview
 
+
 ##### This project aims to build a music recommendation system based on the user's listening history.
 ##### The system analyzes track features and listening patterns to provide personalized recommendations.
 
 
 #### Tools Used
+
 
 ##### - Spotify API: To retrieve track details and user listening history.
 ##### - LastFM API: To gather additional metadata on tracks and artists.
@@ -28,16 +30,12 @@
 
 #### 3. Clustering & Similarity Analysis
 
-##### - Apply clustering techniques (K-Means, DBSCAN) to group similar tracks.
+##### - Apply clustering techniques to group similar tracks.
 ##### - Build a similarity matrix to identify tracks with close features.
-
-#### 4. Listening Pattern Analysis
-
-##### - Identify patterns in user listening history to improve recommendations.
 
 
 ### Future Improvements
 
-##### - Integrate collaborative filtering to enhance personalization.
+##### - Identify patterns in user listening history to improve recommendations.
 ##### - Train classification models (SVM, Random Forest, etc.) to predict user preferences.
 ##### - Experiment with advanced clustering techniques to improve accuracy.
