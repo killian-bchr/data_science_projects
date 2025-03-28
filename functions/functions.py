@@ -27,7 +27,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 
-from config import (
+from config.config import (
     api_key_lastfm,
     client_secret_lastfm,
     client_id,
@@ -36,7 +36,7 @@ from config import (
 )
 
 
-### Spotify Authentication
+### Spotify Authentification
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
     client_id = client_id,
     client_secret = client_secret,
@@ -46,6 +46,13 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
 
 ### LastFM functions
 def get_artist_details(artist, api_key, method):
+    """
+    artist : artis name (string)
+    api_key : last_fm api key (string)
+    method : thing we want to request (string) (ex : artist.getSimilar)
+
+    Make and return the get request
+    """
     url = 'http://ws.audioscrobbler.com/2.0/?'
 
     endpoint = f'method={method}&artist={artist}&api_key={api_key}&format=json'
@@ -63,6 +70,14 @@ def get_artist_details(artist, api_key, method):
         print('error :', response.status_code, response.text)
 
 def get_track_details(track, artist, api_key, method):
+    """
+    track : track name (string)
+    artist : artist name (string)
+    api_key : last_fm api_key (string)
+    method : thing we want to request (string) (ex : track.getInfo)
+
+    Make and return the get request
+    """
     url = 'http://ws.audioscrobbler.com/2.0/?'
 
     endpoint = f'method={method}&api_key={api_key}&artist={artist}&track={track}&format=json'
@@ -82,6 +97,12 @@ def get_track_details(track, artist, api_key, method):
 
 ### Spotify functions
 def search_track(track_name, artist_name=None):
+    """
+    track_name : track name (string)
+    artist_name : atist name (string)
+
+    Return a dictionnaire containing all track's features
+    """
     query = f"track:{track_name}"
     if artist_name:
         query += f" artist:{artist_name}"
@@ -111,9 +132,16 @@ def search_track(track_name, artist_name=None):
         }
     else:
         return None
-    
+
+
 def get_playlist_tracks(playlist_id):
+    """
+    playlist_id : id of a playlist (string)
+    
+    Return a dataframe with all playlist's tracks
+    """
     tracks = []
+    # We create an offset because the API request is limited to 100 tracks
     offset = 0
 
     while True:
@@ -188,7 +216,8 @@ def get_playlist_tracks(playlist_id):
 
 def get_recent_tracks(numbers):
     """
-    numbers : number of last tracks you want to get (must be <50 because we can't load more than 50)
+    numbers : number of last tracks you want to get (must be <50 because we can't load more than 50) (integer)
+
     Return a dataframe with the last tracks listened and further informations for each one
     """    
     limit = min(50, numbers)
@@ -263,6 +292,9 @@ def get_recent_tracks(numbers):
 def vectorize_recent_tracks(df, n_components=1, played_date=False):
     """
     df : dataframe with last tracks (returned by get_recent_track)
+    n_components : number of components used in the PCA method (integer)
+    played_at : to get this feature in the resulting dataframe (Boolean)
+
     Return a dataframe with vectorized data
     """
     # Define the encoder
@@ -341,13 +373,23 @@ def vectorize_recent_tracks(df, n_components=1, played_date=False):
     return df_vect
 
 
-def scale_and_weight(df_vect, weighted_features=None, weights=None, n_components=1):
+def scale_and_weight(df_vect, weights=None, n_components=1):
+    """
+    df_vect : dataframe with vectorized data (resulting from vectorize_recent_tracks function)
+    weights : a dictionnaire with features to be weights in key (string) and the wieght in value (float)
+                        (ex : {'duration': 0.5, 'album_id': 500, 'album_artists_id': 1000, 'track_tags': 20})
+                        after being scaled the default weight is 1
+    n_components : number of components used in the PCA method (integer)
+                   needs to be the same as usd in the precedent function (vectorization step) !
+
+    Return a dataframe with weighted and scaled data
+    """
     df_vect = df_vect.copy()
     scaler = MinMaxScaler()
     df_vect_scaled = pd.DataFrame(scaler.fit_transform(df_vect), columns=df_vect.columns, index=df_vect.index)
 
-    if weighted_features and weights:
-        for prefix, weight in zip(weighted_features, weights):
+    if weights:
+        for prefix, weight in weights.items():
             if prefix in df_vect_scaled.columns:
                 df_vect_scaled[prefix] *= weight
             else:
@@ -365,6 +407,7 @@ def scatter_plot(X, Y=None):
     """
     X : one features from which we want to get a scatter plot ! it need to be a vector features ! 
     Y : one other features we want to observe the repartition for the plot (None by default)
+
     Return a scatter plot, using PCA method to divide data
     """
     X = X.apply(pd.Series).fillna(0)
@@ -418,6 +461,8 @@ def correlation_heatmap(df):
 def clustering(df):
     """
     df : vectorized and scaled features of a trakclist
+
+    Return a Series with the same index as vectorized, scaled and weighted data containing the respective cluster for each track
     """
     df = df.copy()
     df.columns = df.columns.astype(str)
@@ -453,7 +498,10 @@ def clustering(df):
 def visualize_clustering(df, feature=None):
     """
     df : vectorized and scaled features of a trakclist
-    example of feature : df[['track_name']]
+    feature : a feature you want to be displayed when you hover the point on the scatter plot
+              example of feature : df[['track_name']] --> display the track_name when you hover the point on the scatter plot
+
+    Display a scatter plot of the clustering
     """
     df = df.copy()
     df.columns = df.columns.astype(str)
